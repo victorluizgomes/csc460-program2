@@ -2,7 +2,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.Hashtable;
 
 /*=============================================================================
 |   Assignment:  Program #2 (Prog2B.java)
@@ -88,8 +87,9 @@ public class Prog2B {
 			// Calculate the amount of records in the file
 			numOfRecords = records.getnumOfRecords(); 
 			
-			Bucket bucket0 = new Bucket();
-			Bucket bucket1 = new Bucket();
+			Bucket bucket = new Bucket();
+			writeIndex(indexStream, bucket, 0);
+			writeIndex(indexStream, bucket, 400); // 50 * 2 ints(4)
 			int index = -1;
 			
 			dataStream.seek(0);
@@ -98,21 +98,31 @@ public class Prog2B {
 				
 				// Gets in which bucket we should put the Cpsc #
 				index = hash(records.getCpscCase(), h);  
+					
+				// offset should be the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
+				bucket = readIndex(indexStream, index * 400);
 				
-				if (i == 1) { // first time we just write to idx
-					if(index == 0) {
-						bucket0.append(records.getCpscCase(), totalLineLen * (i - 1));
-					} else {
-						bucket1.append(records.getCpscCase(), totalLineLen * (i - 1));
-					}
+				// Rehashing
+				if(bucket.isFilled()) {
+					Rehash(indexStream, h);
+					h = h + 1; // Increase number of rehashings for the hash function
 					
-					writeIndex(indexStream, bucket0, 0);
-					writeIndex(indexStream, bucket1, 100 * 4); // 50 * 2 ints
-				} else {
-					// TODO: read obj from idx file
-					
-				}
+					index = hash(records.getCpscCase(), h); // calculate hash again
+					bucket = readIndex(indexStream, index * 400);
+				} 
+				
+				bucket.append(records.getCpscCase(), totalLineLen * (i - 1));
+				bucket.printBucket();
+				writeIndex(indexStream, bucket, index * 400);
 			}
+			
+			for(int i = 0; i < (int)Math.pow(2, h + 1); i++) {
+				bucket = readIndex(indexStream, i * 400);
+				bucket.printBucket();
+			}
+			
+			System.out.println("Number of Buckets: " + (int)Math.pow(2, h + 1));
+			
 			
 			// create new binary file named simplelinear.idx
 			// which will be the index file (constructed with the CPSC # I have)
@@ -129,39 +139,99 @@ public class Prog2B {
 			e.printStackTrace();
 		}
 	}
-	
-	
+
 	// hash function returns the index for the cpsc number
 	// hash(number) = number % Math.pow(number, H + 1)
 	private static int hash(int number, int h) {
 		
-		return number % (int)Math.pow(number, h + 1);
+		return number % (int)Math.pow(2, h + 1);
+	}
+	
+	// Rehash the file
+	private static void Rehash(RandomAccessFile stream, int h) {
+		
+		Bucket currBuck = null;
+		
+		Bucket buck1 = null;
+		Bucket buck2 = null;
+		
+		int index = -1;
+		
+		int numOfBuckets = (int)Math.pow(2, h + 1);
+		
+		// Go through all the buckets to double number of buckets
+		for(int i = 0; i < numOfBuckets; i++) {
+		
+			buck1 = new Bucket();
+			buck2 = new Bucket();
+			currBuck = readIndex(stream, i * 400);
+			
+			// go through all elements of the current bucket and rehash them to 2 buckets
+			for(int j = 0; j < currBuck.getBucket().length; j++) {
+				
+				if(currBuck.get(j).getCpscNum() != -1) {
+					index = hash(currBuck.get(j).getCpscNum(), h + 1);
+					
+					if(index == i) {
+						buck1.append(currBuck.get(j).getCpscNum(), currBuck.get(j).getLoc());
+					} else {
+						buck2.append(currBuck.get(j).getCpscNum(), currBuck.get(j).getLoc());
+					}
+				}
+			}
+			
+			// write the newly created buckets replacing the first one and appending the other
+			writeIndex(stream, buck1, i * 400);
+			writeIndex(stream, buck2, (numOfBuckets + i) * 400);
+		}
 	}
 	
 	// Writes all 50 ints as a bucket to the index
 	private static void writeIndex(RandomAccessFile stream, Bucket bucket, int offset) {
-		// TODO: offset should be the (length of 50 * 2 ints bytes) * (the index of the bucket)
+		// offset should be the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
+		
+		// Seek to the start of the bucket
 		try {
 			stream.seek(offset);
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		}
+			
+		for(int i = 0; i < bucket.getBucket().length; i++) {
+				
+			try {
+				stream.writeInt(bucket.get(i).getCpscNum());
+				stream.writeInt(bucket.get(i).getLoc());
+					
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	// Read a bucket from the index
+	private static Bucket readIndex(RandomAccessFile stream, int offset) {
+		
+		Bucket bucket = new Bucket();
+		
+		try {
+			stream.seek(offset);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
 		for(int i = 0; i < bucket.getBucket().length; i++) {
 			
 			try {
-				
-				if(bucket.get(i) == null ) {
-					stream.writeInt(-1);
-					stream.writeInt(-1);
-				} else {
-					stream.writeInt(bucket.get(i).getCpscNum());
-					stream.writeInt(bucket.get(i).getLoc());
-				}
+				bucket.get(i).setCpscNum(stream.readInt());
+				bucket.get(i).setLoc(stream.readInt());
 				
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
+		
+		return bucket;
 	}
 }
 
@@ -207,7 +277,7 @@ class Bucket {
 		
 		bucket = new Field[50];
 		for(int i = 0; i < bucket.length; i++) {
-			bucket[i] = null;
+			bucket[i] = new Field(-1, -1);
 		}
 	}
 
@@ -224,6 +294,17 @@ class Bucket {
 		}
 	}
 	
+	// return if the bucket has no more space
+	public boolean isFilled() {
+		
+		if(bucket[49] == null || bucket[49].getCpscNum() == -1) {
+			return false;
+		} else {
+			return true;
+		}
+	}
+	
+	// TODO: may not need
 	public void put(int cpsc, int loc, int index) {
 		bucket[index] = new Field(cpsc, loc);
 	}
@@ -234,5 +315,21 @@ class Bucket {
 	
 	public Field[] getBucket() {
 		return this.bucket;
+	}
+	
+	// prints the bucket
+	public void printBucket() {
+		
+		for(int i = 0; i < bucket.length; i++) {
+			
+			if((i + 1) % 5 == 0) {
+				System.out.println();
+			}
+			System.out.print(i + ": " + bucket[i].getCpscNum() + " " + bucket[i].getLoc() + " || ");
+		}
+		
+		System.out.println();
+		System.out.println("---------");
+		System.out.println();
 	}
 }

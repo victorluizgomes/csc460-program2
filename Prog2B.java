@@ -112,13 +112,7 @@ public class Prog2B {
 				} 
 				
 				bucket.append(records.getCpscCase(), totalLineLen * (i - 1));
-				bucket.printBucket();
 				writeIndex(indexStream, bucket, index * 400);
-			}
-			
-			for(int i = 0; i < (int)Math.pow(2, h + 1); i++) {
-				bucket = readIndex(indexStream, i * 400);
-				bucket.printBucket();
 			}
 			
 			System.out.println("Number of Buckets: " + (int)Math.pow(2, h + 1));
@@ -167,8 +161,9 @@ public class Prog2B {
 			currBuck = readIndex(stream, i * 400);
 			
 			// go through all elements of the current bucket and rehash them to 2 buckets
-			for(int j = 0; j < currBuck.getBucket().length; j++) {
+			for(int j = 0; j < currBuck.actualLength(); j++) {
 				
+				// if the number is a place holder do not append
 				if(currBuck.get(j).getCpscNum() != -1) {
 					index = hash(currBuck.get(j).getCpscNum(), h + 1);
 					
@@ -307,6 +302,21 @@ class Bucket {
 	// TODO: may not need
 	public void put(int cpsc, int loc, int index) {
 		bucket[index] = new Field(cpsc, loc);
+	}
+	
+	// returns the length of the bucket without counting the place holders
+	public int actualLength() {
+		
+		int result = 0;
+		for(int i = 0; i < bucket.length; i++) {
+			if(bucket[i].getCpscNum() == -1) {
+				break;
+			} else {
+				result++;
+			}
+		}
+		
+		return result;
 	}
 	
 	public Field get(int index) {

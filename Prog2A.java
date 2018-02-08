@@ -9,17 +9,18 @@ import java.util.Map.Entry;
 |
 |       Course:  CSc 460 Spring 2018
 |   Instructor:  L. McCann
-|     Due Date:  January 18th, at the beginning of class
+|     Due Date:  February 8th, at the beginning of class
 |
 |     Language:  Java 1.8
 |  Compile/Run:  When running this program, supplement it with an .tsv (tab-separated values)
-|				  file as an argument, which will be used to convert it to a .bin file.
+|				  file as an argument, which will be used to convert it to a .bin file. 
+|				  (Adjusted from Prog1A.java)
 |
 +-----------------------------------------------------------------------------
 |
 |  Description:  The program creates a binary version of a tab-separated values file that
 |				  comes from a sample of hospital emergency room visits in 2016. The file works 
-| 				  by first sorting the lines by the second field (trmt_date) in ascending order
+| 				  by first sorting the lines by the first field (CPSC Case #) in ascending order
 |				  and then making sure all Strings are padded to the size of the biggest String,
 |				  so that RandomAccessFile can successfully convert it to a Binary file. 
 |                
@@ -36,8 +37,6 @@ import java.util.Map.Entry;
 |   Known Bugs:  None
 |
 *===========================================================================*/
-
-// TODO Fix documentation
 
 public class Prog2A {
 	public static void main(String[] args) {
@@ -118,7 +117,6 @@ public class Prog2A {
 					
 					// Get the current line and split it
 					currentLine = entry.getValue().get(i);
-					System.out.println(currentLine);
 					strArr = new String[19];
 					splitted = currentLine.split("\t");
 					
@@ -143,6 +141,7 @@ public class Prog2A {
 				}
 			}
 			
+			// Sets the total number of records in the file
 			records.setNumOfRecords(numberOfrec);
 			
 			// write at the end of the binary file the maximum lengths
@@ -161,7 +160,7 @@ public class Prog2A {
 	}
 	
 	/*-------------------------------------------------------------------
-    |  Method setupMaxLength (Prog1A)
+    |  Method setupMaxLength (Prog2A)
     |
     | 		 Purpose:  To be ran everytime a line is parsed through storing in the records
     |					the biggest lengths of the fields that contain strings.
@@ -198,7 +197,7 @@ public class Prog2A {
 	}
 	
 	/*-------------------------------------------------------------------
-    |  Method setupRecords (Prog1A)
+    |  Method setupRecords (Prog2A)
     |
     | 		 Purpose:  To be ran everytime a line is parsed through storing in the different
     |					fields, so that they can be written to the Binary File.

@@ -9,51 +9,53 @@ import java.io.RandomAccessFile;
 |
 |       Course:  CSc 460 Spring 2018
 |   Instructor:  L. McCann
-|     Due Date:  January 18th, at the beginning of class
+|     Due Date:  February 8th, at the beginning of class
 |
 |     Language:  Java 1.8
-|  Compile/Run:  When running this program, supplement it with an .tsv (tab-separated values)
-|				  file as an argument, which will be used to convert it to a .bin file.
+|  Compile/Run:  When running this program, supplement it with an .bin (binary)
+|				  file as an argument, which will be used to create the .idx (index) file.
 |
 +-----------------------------------------------------------------------------
 |
-|  Description:  The program creates a binary version of a tab-separated values file that
-|				  comes from a sample of hospital emergency room visits in 2016. The file works 
-| 				  by first sorting the lines by the second field (trmt_date) in ascending order
-|				  and then making sure all Strings are padded to the size of the biggest String,
-|				  so that RandomAccessFile can successfully convert it to a Binary file. 
+|  Description:  The program takes a .bin file that will be read line by line, which will be 
+|				  used to create a index file that will store those records from the .bin file.
+|				  The index file will contain buckets that are 50 in size that will hold a 
+|				  CPSC case # that is hashed to the correct bucket and a Location number, 
+|				  which is the location of that CPSC # in the .bin file (database file).
 |                
-|        Input:  The user will need to provide a tab-separated file as an argument.
+|        Input:  A binary file that was created in Prog2A as the command line argument.
 |
-|       Output:  The output is a newly created Binary file conversion of the .tsv file provided.
+|       Output:  A summary of the index file created including (a) the number of buckets in the
+|				  index, (b) the number of records in the lowest occupancy bucket, (c) the number
+|				  of records in the highest occupancy bucket and (d) the mean of occupancies.
 |
-|   Techniques:  I used a TreeMap<Date, ArrayList<String>> as the way to store the data, 
-| 				  it was done so that way because a TreeMap sorts automatically based on the 
-|				  key (Date) in a fast manner. But it does not allow for duplicate values 
-| 				  associated to that key, so that is where the ArrayList comes handy, being
-| 				  able to add duplicates (same date lines) to the same key value.
+|   Techniques:  I created a custom Data Structure for the buckets which has 50 Fields and
+|				  some useful methods (more info about it on the class itself). The Fields hold
+|				  a CPSC number and a location number.
 |
 |   Known Bugs:  None
 |
 *===========================================================================*/
-
-// TODO Fix documentation
 
 public class Prog2B {
 	public static void main(String[] args) {
 		
 		AllDataRecords records; // to store the records 
 		
-		RandomAccessFile dataStream = null; // the strean to be read
-		RandomAccessFile indexStream = null;
-		File fileRef = null;				// to get the file from the arguments
-		File idxFile = null;
+		RandomAccessFile dataStream = null; 	// the database stream to be read
+		RandomAccessFile indexStream = null;	// the index stream to be written
+		File fileRef = null;					// to get the file from the arguments
+		File idxFile = null;					// to create the file for index
 		
 		int h = 0; 				// The number of rehashings for the hash function
 		
 		int strRecordsLen = 0;  // the length in bytes of all the string fields
-		int totalLineLen = 0;   // the whole line length TODO: not used
+		int totalLineLen = 0;   // the whole line length
 		long numOfRecords = 0;  // the number of records in the file
+		
+		int lowBucket = 51;     // lowest occupancy bucket (never more than 51)
+		int highBucket = 0;	    // highest occupancy bucket
+		double meanBucket = 0;     // mean of occupancies for all buickets
 		
 		try {
 			
@@ -87,11 +89,13 @@ public class Prog2B {
 			// Calculate the amount of records in the file
 			numOfRecords = records.getnumOfRecords(); 
 			
+			// Creates the 2 new starting buckets
 			Bucket bucket = new Bucket();
 			writeIndex(indexStream, bucket, 0);
-			writeIndex(indexStream, bucket, 400); // 50 * 2 ints(4)
+			writeIndex(indexStream, bucket, 400); // 50 * 2 ints(4) = 400
 			int index = -1;
 			
+			// go through all records
 			dataStream.seek(0);
 			for(int i = 1; i <= numOfRecords; i++) {
 				records.readBinary(dataStream); // reads all fields of a line
@@ -99,30 +103,59 @@ public class Prog2B {
 				// Gets in which bucket we should put the Cpsc #
 				index = hash(records.getCpscCase(), h);  
 					
-				// offset should be the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
+				// read the bucket in the index location from the hash function
 				bucket = readIndex(indexStream, index * 400);
 				
 				// Rehashing
 				if(bucket.isFilled()) {
-					Rehash(indexStream, h);
+					rehash(indexStream, h);
 					h = h + 1; // Increase number of rehashings for the hash function
 					
-					index = hash(records.getCpscCase(), h); // calculate hash again
+					// calculate hash and read bucket again
+					index = hash(records.getCpscCase(), h); 
 					bucket = readIndex(indexStream, index * 400);
 				} 
 				
+				// append the records to the current bucket
 				bucket.append(records.getCpscCase(), totalLineLen * (i - 1));
+				
+				// write the bucket back to the index file
 				writeIndex(indexStream, bucket, index * 400);
 			}
 			
-			System.out.println("Number of Buckets: " + (int)Math.pow(2, h + 1));
+			// Goes through the final buckets to set the final summary
+			for(int i = 0; i < (int)Math.pow(2, h + 1); i++) {
+				
+				bucket = readIndex(indexStream, i * 400);
+				// Set the lowest bucket
+				if(bucket.actualLength() < lowBucket) {
+					lowBucket = bucket.actualLength();
+				}
+				
+				// Sets the highest bucket
+				if(bucket.actualLength() > highBucket) {
+					highBucket = bucket.actualLength();
+				}
+				
+				// sum of all records
+				meanBucket = meanBucket + bucket.actualLength();
+			}
 			
+			// Mean bucket is the sum of all the records in all buckets divided by number of buckets
+			meanBucket = meanBucket / Math.pow(2, h + 1);
 			
-			// create new binary file named simplelinear.idx
-			// which will be the index file (constructed with the CPSC # I have)
+			// Final summary of index file
+			System.out.println("-----------------------------------------------");
+			System.out.println("Summary of the Simplified Linear Hashing index: ");
+			System.out.println("-----------------------------------------------");
+			System.out.println("Number of Buckets in file: " + (int)Math.pow(2, h + 1));
+			System.out.println("Number of records in the lowest occupancy bucket: " + lowBucket);
+			System.out.println("Number of records in the highest occupancy bucket: " + highBucket);
+			System.out.println("Mean of occupancies for all buckets: " + meanBucket);
 			
-			// Create bucket objects?
-			// if we only have two
+			// Write H value (number of rehashings to the end of the index file)
+			indexStream.seek(indexStream.length());
+			indexStream.writeInt(h);
 			
 			indexStream.close();
 			dataStream.close();
@@ -134,26 +167,54 @@ public class Prog2B {
 		}
 	}
 
-	// hash function returns the index for the cpsc number
-	// hash(number) = number % Math.pow(number, H + 1)
-	private static int hash(int number, int h) {
+	/*-------------------------------------------------------------------
+    |  Method hash (Prog2B)
+    |
+    | 		 Purpose:  Hash function to determine in which bucket the number
+    |					given should go to. number % number^(H + 1)
+    |
+    |  Pre-condition:  A correct cpsc number must be given
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  1. int number -- the number to be hashed on hash function
+    |				   2. int h -- the number of rehashs in the file
+    |      	
+    |        Returns:  Returns the calculated index for the cpsc number
+    |
+    *-------------------------------------------------------------------*/
+	public static int hash(int number, int h) {
 		
 		return number % (int)Math.pow(2, h + 1);
 	}
 	
-	// Rehash the file
-	private static void Rehash(RandomAccessFile stream, int h) {
+	/*-------------------------------------------------------------------
+    |  Method rehash (Prog2B)
+    |
+    | 		 Purpose:  Takes a full bucket from the binary file and creates 2 
+    |					buckets out of it that are rehashed using the hash function.
+    |
+    |  Pre-condition:  Determine if bucket is full and should be rehashed
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  1. RandomAccessFile stream -- the stream to be read and written to
+    |				   2. int h -- the number of rehashs in the file
+    |      	
+    |        Returns:  -
+    |
+    *-------------------------------------------------------------------*/
+	private static void rehash(RandomAccessFile stream, int h) {
 		
+		// Sets the current Bucket and the 2 new Buckets
 		Bucket currBuck = null;
-		
 		Bucket buck1 = null;
 		Bucket buck2 = null;
 		
 		int index = -1;
-		
 		int numOfBuckets = (int)Math.pow(2, h + 1);
 		
-		// Go through all the buckets to double number of buckets
+		// Go through all the buckets to double number of buckets one by one
 		for(int i = 0; i < numOfBuckets; i++) {
 		
 			buck1 = new Bucket();
@@ -167,6 +228,7 @@ public class Prog2B {
 				if(currBuck.get(j).getCpscNum() != -1) {
 					index = hash(currBuck.get(j).getCpscNum(), h + 1);
 					
+					// determines which of the 2 buckets to append to
 					if(index == i) {
 						buck1.append(currBuck.get(j).getCpscNum(), currBuck.get(j).getLoc());
 					} else {
@@ -181,17 +243,33 @@ public class Prog2B {
 		}
 	}
 	
-	// Writes all 50 ints as a bucket to the index
+	/*-------------------------------------------------------------------
+    |  Method writeIndex (Prog2B)
+    |
+    | 		 Purpose:  Writes the 50 records of the bucket given to the correct offset in
+    | 					the index file also given.
+    |
+    |  Pre-condition:  Make sure to pass the correct offset, which should be
+    | 					the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  1. RandomAccessFile stream -- the stream to be written to
+    |				   2. Bucket bucket -- the bucket to be written to the index file
+    |				   3. int offset -- the offset of the bucket to be written
+    |      	
+    |        Returns:  -
+    |
+    *-------------------------------------------------------------------*/
 	private static void writeIndex(RandomAccessFile stream, Bucket bucket, int offset) {
-		// offset should be the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
 		
-		// Seek to the start of the bucket
 		try {
 			stream.seek(offset);
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		}
-			
+		
+		// Goes through the bucket and write all the fields to the file
 		for(int i = 0; i < bucket.getBucket().length; i++) {
 				
 			try {
@@ -204,10 +282,26 @@ public class Prog2B {
 		}
 	}
 	
-	// Read a bucket from the index
-	private static Bucket readIndex(RandomAccessFile stream, int offset) {
+	/*-------------------------------------------------------------------
+    |  Method readIndex (Prog2B)
+    |
+    | 		 Purpose:  Reads the 50 records of the bucket given the correct offset in
+    | 					the index file also given.
+    |
+    |  Pre-condition:  Make sure to pass the correct offset, which should be
+    | 					the (length of 50 * 2 ints (4) bytes) * (the index of the bucket)
+    |
+    | Post-condition:  Use the bucket that is returned.
+    |
+    |     Parameters:  1. RandomAccessFile stream -- the stream to be read to
+    |				   2. int offset -- the offset of the bucket to be read
+    |      	
+    |        Returns:  The bucket that was read
+    |
+    *-------------------------------------------------------------------*/
+	public static Bucket readIndex(RandomAccessFile stream, int offset) {
 		
-		Bucket bucket = new Bucket();
+		Bucket bucket = new Bucket(); // Bucket to be read
 		
 		try {
 			stream.seek(offset);
@@ -215,6 +309,7 @@ public class Prog2B {
 			e.printStackTrace();
 		}
 		
+		// Goes through the file and read all the fields to the new Bucket
 		for(int i = 0; i < bucket.getBucket().length; i++) {
 			
 			try {
@@ -234,22 +329,30 @@ public class Prog2B {
 |  Class Name:  Bucket
 |  	   Author:  Victor Gomes
 |  
-|	  Purpose:  TODO: fix. To store all the data of all the fields given on the sample file, 
-|				 hold the biggest length of all the fields with String on it, have
-|				 multiple getters and setters for all the instance variables.
-|				 In addition, have the ability to write the information of those fields
-|				 to a binary file when a RandomAccessFile is given. 
+|	  Purpose:  Used to store 50 fields that have the CPSC # and a loc, forming
+|				 one bucket. Which it will be stored in the index file.
 |
-|	  Methods:  There are two instance methods that are used to write to a binary file.
+|	  Methods:  A couple useful methods used to access and modify the bucket.
 |
-|						1. void writeBinary(RandomAccessFile stream)
-|						2. void writeMaxLengths(RandomAccessFile stream)
+|						1. void append(int cpsc, int loc)
+|						2. boolean isFilled()
+|						3. int actualLength()
+|						4. Field get(int index)
+|						5. Field[] getBucket()
+|						6. void printBucket()
 |
 *-------------------------------------------------------------------*/
 
 class Bucket {
 	
-	// Creates a Object field that holds the CPSC number and Location
+	/*-------------------------------------------------------------------
+	 *   Class Name:  Field
+	 *       Author:  Victor Gomes
+	 * 
+	 * 	Description:  A small inside class that represents a Field in the bucket
+	 * 				   out of the 50 fields. It holds a CPSC # and a Location.
+	 * 
+	 *-------------------------------------------------------------------*/
 	public class Field {
 		private int cpscNum;
 		private int loc;
@@ -259,26 +362,44 @@ class Bucket {
 			this.setLoc(loc);
 		}
 
+		// Getters
 		public int getCpscNum() { return cpscNum; }
 		public void setCpscNum(int cpscNum) { this.cpscNum = cpscNum; }
 
+		// Setters
 		public int getLoc() { return loc; }
 		public void setLoc(int loc) { this.loc = loc; }
 	}
 	
-	private Field[] bucket;
+	private Field[] bucket; // Stores the bucket
 	
 	public Bucket() {
 		
+		// Initializes the 50 Fields in the bucket with the place holder of -1
 		bucket = new Field[50];
 		for(int i = 0; i < bucket.length; i++) {
 			bucket[i] = new Field(-1, -1);
 		}
 	}
 
-	// Go through array until a null element is found and append
+	/*-------------------------------------------------------------------
+    |  Method append (Bucket)
+    |
+    | 		 Purpose:  To append to the last available place in the bucket
+    |
+    |  Pre-condition:  -
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  1. int cpsc -- the CPSC number
+    | 				   2. int loc -- the location number
+    |      	
+    |        Returns:  -
+    |
+    *-------------------------------------------------------------------*/
 	public void append(int cpsc, int loc) {
 
+		// Go through array until a null or place holder element is found and append
 		for(int i = 0; i < bucket.length; i++) {
 			if(bucket[i] == null || bucket[i].getCpscNum() == -1) {
 				bucket[i] = new Field(cpsc, loc);
@@ -289,9 +410,23 @@ class Bucket {
 		}
 	}
 	
-	// return if the bucket has no more space
+	/*-------------------------------------------------------------------
+    |  Method isFilled (Bucket)
+    |
+    | 		 Purpose:  To check if the bucket is full
+    |
+    |  Pre-condition:  -
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  -
+    |      	
+    |        Returns:  true if the bucket is filled, false otherwise.
+    |
+    *-------------------------------------------------------------------*/
 	public boolean isFilled() {
 		
+		// return if the bucket has no more space
 		if(bucket[49] == null || bucket[49].getCpscNum() == -1) {
 			return false;
 		} else {
@@ -299,14 +434,24 @@ class Bucket {
 		}
 	}
 	
-	// TODO: may not need
-	public void put(int cpsc, int loc, int index) {
-		bucket[index] = new Field(cpsc, loc);
-	}
-	
-	// returns the length of the bucket without counting the place holders
+	/*-------------------------------------------------------------------
+    |  Method actualLength (Bucket)
+    |
+    | 		 Purpose:  Counts the place holders (-1) as the end of the bucket length,
+    |					so we can have the length of all values that are not place holders.
+    |
+    |  Pre-condition:  -
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  -
+    |      	
+    |        Returns:  the length without counting place holders.
+    |
+    *-------------------------------------------------------------------*/
 	public int actualLength() {
 		
+		// goes through the bucket elements, breaks when a place holder is found
 		int result = 0;
 		for(int i = 0; i < bucket.length; i++) {
 			if(bucket[i].getCpscNum() == -1) {
@@ -319,17 +464,28 @@ class Bucket {
 		return result;
 	}
 	
-	public Field get(int index) {
-		return bucket[index];
-	}
+	// Getters
+	public Field get(int index) { return bucket[index]; }
+	public Field[] getBucket() { return this.bucket; }
 	
-	public Field[] getBucket() {
-		return this.bucket;
-	}
-	
-	// prints the bucket
+	/*-------------------------------------------------------------------
+    |  Method printBucket (Bucket)
+    |
+    | 		 Purpose:  (For debugging purposes) It iterates through the bucket 
+    |					and prints out the elements in it in a easy to see way.
+    |
+    |  Pre-condition:  -
+    |
+    | Post-condition:  -
+    |
+    |     Parameters:  -
+    |      	
+    |        Returns:  -
+    |
+    *-------------------------------------------------------------------*/
 	public void printBucket() {
 		
+		// Goes through the field of the bucket and prints all values, 5 per line
 		for(int i = 0; i < bucket.length; i++) {
 			
 			if((i + 1) % 5 == 0) {
